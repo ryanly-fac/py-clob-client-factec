@@ -16,7 +16,11 @@ POST = "POST"
 DELETE = "DELETE"
 PUT = "PUT"
 
+# Synchronous HTTP client
 _http_client = httpx.Client(http2=True)
+
+# Asynchronous HTTP client
+_async_http_client = httpx.AsyncClient(http2=True)
 
 
 def overloadHeaders(method: str, headers: dict) -> dict:
@@ -217,3 +221,56 @@ def add_orders_scoring_params_to_url(
         if params.orderIds:
             url = build_query_params(url, "order_ids", ",".join(params.orderIds))
     return url
+
+
+# =============================================================================
+# Async HTTP Functions
+# =============================================================================
+
+
+async def async_request(endpoint: str, method: str, headers=None, data=None):
+    """Async version of request"""
+    try:
+        headers = overloadHeaders(method, headers)
+        if isinstance(data, str):
+            # Pre-serialized body: send exact bytes
+            resp = await _async_http_client.request(
+                method=method,
+                url=endpoint,
+                headers=headers,
+                content=data.encode("utf-8"),
+            )
+        else:
+            resp = await _async_http_client.request(
+                method=method,
+                url=endpoint,
+                headers=headers,
+                json=data,
+            )
+
+        if resp.status_code != 200:
+            raise PolyApiException(resp)
+
+        try:
+            return resp.json()
+        except ValueError:
+            return resp.text
+
+    except httpx.RequestError:
+        raise PolyApiException(error_msg="Request exception!")
+
+
+async def async_post(endpoint, headers=None, data=None):
+    return await async_request(endpoint, POST, headers, data)
+
+
+async def async_get(endpoint, headers=None, data=None):
+    return await async_request(endpoint, GET, headers, data)
+
+
+async def async_delete(endpoint, headers=None, data=None):
+    return await async_request(endpoint, DELETE, headers, data)
+
+
+async def async_put(endpoint, headers=None, data=None):
+    return await async_request(endpoint, PUT, headers, data)

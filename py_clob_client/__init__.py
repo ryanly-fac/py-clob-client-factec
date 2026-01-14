@@ -1,4 +1,5 @@
 from .client import ClobClient
+from .async_client import AsyncClobClient
 from .clob_types import (
     ApiCreds,
     OrderArgs,
@@ -17,6 +18,7 @@ from .clob_types import (
 # RFQ exports
 from .rfq import (
     RfqClient,
+    AsyncRfqClient,
     RfqUserRequest,
     RfqUserQuote,
     CreateRfqRequestParams,
@@ -38,6 +40,7 @@ from .rfq import (
 __all__ = [
     # Main client
     "ClobClient",
+    "AsyncClobClient",
     # Core types
     "ApiCreds",
     "OrderArgs",
@@ -53,6 +56,7 @@ __all__ = [
     "CreateOrderOptions",
     # RFQ client
     "RfqClient",
+    "AsyncRfqClient",
     # RFQ input types
     "RfqUserRequest",
     "RfqUserQuote",
