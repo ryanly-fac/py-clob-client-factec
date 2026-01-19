@@ -1,3 +1,5 @@
+import asyncio
+from urllib.parse import urlparse
 import httpx
 
 from py_clob_client.clob_types import (
@@ -16,11 +18,93 @@ POST = "POST"
 DELETE = "DELETE"
 PUT = "PUT"
 
-# Synchronous HTTP client
-_http_client = httpx.Client(http2=True)
+def _create_http_client(proxies=None):
+    return httpx.Client(http2=True, proxies=proxies)
 
-# Asynchronous HTTP client
-_async_http_client = httpx.AsyncClient(http2=True)
+
+def _create_async_http_client(proxies=None):
+    return httpx.AsyncClient(http2=True, proxies=proxies)
+
+
+def _proxies_key(proxies) -> str:
+    if proxies is None:
+        return "default"
+    if isinstance(proxies, dict):
+        items = tuple(sorted(proxies.items()))
+        return f"dict:{items}"
+    return f"{proxies}"
+
+
+def _close_async_client(client: httpx.AsyncClient):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        loop.create_task(client.aclose())
+    else:
+        try:
+            asyncio.run(client.aclose())
+        except Exception:
+            pass
+
+
+_sync_clients = {}
+_async_clients = {}
+_host_proxy_map = {}
+_default_proxies = None
+
+
+def configure_http_clients(*, proxies=None, host: str = None):
+    """
+    Register proxies (optionally per host) and ensure a reusable client exists.
+    """
+    global _default_proxies
+    if host:
+        parsed = urlparse(host)
+        host_key = parsed.netloc or host
+        _host_proxy_map[host_key] = proxies
+    else:
+        _default_proxies = proxies
+
+    key = _proxies_key(proxies)
+
+    if key not in _sync_clients:
+        _sync_clients[key] = _create_http_client(proxies)
+
+    if key not in _async_clients:
+        _async_clients[key] = _create_async_http_client(proxies)
+
+
+def _get_proxies(endpoint: str, explicit_proxies=None):
+    if explicit_proxies is not None:
+        return explicit_proxies
+
+    parsed = urlparse(endpoint)
+    host = parsed.netloc
+    if host in _host_proxy_map:
+        return _host_proxy_map[host]
+
+    return _default_proxies
+
+
+def _get_sync_client(proxies=None):
+    key = _proxies_key(proxies)
+    client = _sync_clients.get(key)
+    if client is None:
+        client = _create_http_client(proxies)
+        _sync_clients[key] = client
+    return client
+
+
+def _get_async_client(proxies=None):
+    key = _proxies_key(proxies)
+    client = _async_clients.get(key)
+    if client is None:
+        client = _create_async_http_client(proxies)
+        _async_clients[key] = client
+    return client
 
 
 def overloadHeaders(method: str, headers: dict) -> dict:
@@ -38,19 +122,21 @@ def overloadHeaders(method: str, headers: dict) -> dict:
     return headers
 
 
-def request(endpoint: str, method: str, headers=None, data=None):
+def request(endpoint: str, method: str, headers=None, data=None, proxies=None):
     try:
         headers = overloadHeaders(method, headers)
+        proxies = _get_proxies(endpoint, proxies)
+        client = _get_sync_client(proxies)
         if isinstance(data, str):
             # Pre-serialized body: send exact bytes
-            resp = _http_client.request(
+            resp = client.request(
                 method=method,
                 url=endpoint,
                 headers=headers,
                 content=data.encode("utf-8"),
             )
         else:
-            resp = _http_client.request(
+            resp = client.request(
                 method=method,
                 url=endpoint,
                 headers=headers,
@@ -69,20 +155,20 @@ def request(endpoint: str, method: str, headers=None, data=None):
         raise PolyApiException(error_msg="Request exception!")
 
 
-def post(endpoint, headers=None, data=None):
-    return request(endpoint, POST, headers, data)
+def post(endpoint, headers=None, data=None, proxies=None):
+    return request(endpoint, POST, headers, data, proxies)
 
 
-def get(endpoint, headers=None, data=None):
-    return request(endpoint, GET, headers, data)
+def get(endpoint, headers=None, data=None, proxies=None):
+    return request(endpoint, GET, headers, data, proxies)
 
 
-def delete(endpoint, headers=None, data=None):
-    return request(endpoint, DELETE, headers, data)
+def delete(endpoint, headers=None, data=None, proxies=None):
+    return request(endpoint, DELETE, headers, data, proxies)
 
 
-def put(endpoint, headers=None, data=None):
-    return request(endpoint, PUT, headers, data)
+def put(endpoint, headers=None, data=None, proxies=None):
+    return request(endpoint, PUT, headers, data, proxies)
 
 
 def build_query_params(url: str, param: str, val: str) -> str:
@@ -228,20 +314,22 @@ def add_orders_scoring_params_to_url(
 # =============================================================================
 
 
-async def async_request(endpoint: str, method: str, headers=None, data=None):
+async def async_request(endpoint: str, method: str, headers=None, data=None, proxies=None):
     """Async version of request"""
     try:
         headers = overloadHeaders(method, headers)
+        proxies = _get_proxies(endpoint, proxies)
+        client = _get_async_client(proxies)
         if isinstance(data, str):
             # Pre-serialized body: send exact bytes
-            resp = await _async_http_client.request(
+            resp = await client.request(
                 method=method,
                 url=endpoint,
                 headers=headers,
                 content=data.encode("utf-8"),
             )
         else:
-            resp = await _async_http_client.request(
+            resp = await client.request(
                 method=method,
                 url=endpoint,
                 headers=headers,
@@ -260,17 +348,17 @@ async def async_request(endpoint: str, method: str, headers=None, data=None):
         raise PolyApiException(error_msg="Request exception!")
 
 
-async def async_post(endpoint, headers=None, data=None):
-    return await async_request(endpoint, POST, headers, data)
+async def async_post(endpoint, headers=None, data=None, proxies=None):
+    return await async_request(endpoint, POST, headers, data, proxies)
 
 
-async def async_get(endpoint, headers=None, data=None):
-    return await async_request(endpoint, GET, headers, data)
+async def async_get(endpoint, headers=None, data=None, proxies=None):
+    return await async_request(endpoint, GET, headers, data, proxies)
 
 
-async def async_delete(endpoint, headers=None, data=None):
-    return await async_request(endpoint, DELETE, headers, data)
+async def async_delete(endpoint, headers=None, data=None, proxies=None):
+    return await async_request(endpoint, DELETE, headers, data, proxies)
 
 
-async def async_put(endpoint, headers=None, data=None):
-    return await async_request(endpoint, PUT, headers, data)
+async def async_put(endpoint, headers=None, data=None, proxies=None):
+    return await async_request(endpoint, PUT, headers, data, proxies)

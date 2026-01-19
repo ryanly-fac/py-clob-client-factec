@@ -36,6 +36,20 @@ time = client.get_server_time()
 print(ok, time)
 ```
 
+### Send traffic through a proxy
+
+```python
+from py_clob_client.client import ClobClient
+
+client = ClobClient(
+    "https://clob.polymarket.com",
+    proxies="http://user:pass@proxy:8080",  # Supports httpx proxy formats (str or dict)
+)
+```
+
+For async usage, pass the same `proxies` argument to `AsyncClobClient`.
+You can also set standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables; those are respected by default. Sessions are reused automatically per proxy/host so repeated requests don’t rebuild connections.
+
 ### Start trading (EOA)
 
 **Note**: If using MetaMask or hardware wallet, you must first set token allowances. See [Token Allowances section](#important-token-allowances-for-metamaskeoa-users) below.
